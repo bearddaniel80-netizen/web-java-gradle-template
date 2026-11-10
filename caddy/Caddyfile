@@ -1,0 +1,96 @@
+localhost {
+
+    # ========================================================
+    # Compression
+    # ========================================================
+
+    encode gzip zstd
+
+
+    # ========================================================
+    # SECURITY HEADERS
+    # ========================================================
+
+    header {
+
+        # Prevent MIME sniffing
+        X-Content-Type-Options "nosniff"
+
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+
+        # Control referrer information
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Disable unnecessary browser features
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+        # Force HTTPS for one year
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+        # Remove server identification
+        -Server
+    }
+
+
+    # ========================================================
+    # RATE LIMITING
+    # ========================================================
+
+    rate_limit {
+
+        # General API limit:
+        #
+        # 120 requests per minute per IPv4 address
+        #
+        zone api_general {
+            match {
+                path /api/*
+            }
+
+            key {remote_host}
+
+            events 120
+            window 1m
+
+            # Group IPv6 clients by /64
+            ipv6_prefix 64
+        }
+
+
+        # Stricter limit for authentication endpoints
+        #
+        # Adjust this to your actual endpoints.
+        zone auth {
+            match {
+                path /api/auth/*
+            }
+
+            key {remote_host}
+
+            events 10
+            window 1m
+
+            ipv6_prefix 64
+        }
+    }
+
+
+    # ========================================================
+    # API
+    # ========================================================
+
+    handle /api/* {
+
+        reverse_proxy bff:8080
+    }
+
+    # ========================================================
+    # FRONTEND
+    # ========================================================
+
+    handle {
+
+        reverse_proxy frontend:8080
+    }
+}

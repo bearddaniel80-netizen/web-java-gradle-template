@@ -1,0 +1,240 @@
+x-secrets: &secrets-default
+    secrets:
+      - fastapi_internal_key
+      - minio_app_user
+      - minio_app_password
+
+x-public-networks: &public-network
+    networks:
+      - public
+
+x-private-networks: &private-network
+    networks:
+      - backend
+
+services:
+
+  # ==========================================================
+  # CADDY
+  #
+  # The ONLY container exposed to the Internet.
+  # ==========================================================
+
+  caddy:
+    networks:
+      - public
+
+    build: ./caddy
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+
+
+  # ==========================================================
+  # Java / REACT
+  #
+  # Not exposed to the Internet.
+  # Caddy talks to it internally.
+  # ==========================================================
+
+  frontend:
+    networks:
+      - public
+
+    build:
+      context: ./frontend
+      target: ${TARGET}
+
+
+  # ==========================================================
+  # BFF
+  #
+  # Browser -> BFF -> FastAPI
+  # or
+  # Browser -> BFF -> MiniO -> FastAPI
+  #
+  # BFF is NOT publicly exposed.
+  # ==========================================================
+
+  bff:
+    <<: *secrets-default
+    build:
+      context: ./bff
+      target: ${TARGET}
+
+    environment:
+      FASTAPI_URL: http://fastapi:8000
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+
+    ports:
+      - "8080"
+
+    networks:
+      - public
+      - backend
+
+  # ==========================================================
+  # MiniO
+  #
+  # Used to upload and download data/source files
+  # Completely private.
+  # ==========================================================
+
+  minio:
+    image: pgsty/minio:latest
+
+    command: server /data --console-address ":9001"
+
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_root_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_root_password
+
+    secrets:
+      - minio_root_user
+      - minio_root_password
+
+    volumes:
+      - minio_data:/data
+
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    networks:
+      - backend
+      
+  # ==========================================================
+  # MiniO
+  #
+  # Ran once to add user policy.
+  # ==========================================================
+
+  minio-init:
+    <<: *private-network
+    image: pgsty/minio:latest
+
+    depends_on:
+      minio:
+        condition: service_healthy
+
+    secrets:
+      - minio_root_user
+      - minio_root_password
+      - minio_app_user
+      - minio_app_password
+
+    volumes:
+      - ./minio/init-minio.sh:/init-minio.sh:ro
+      - ./minio/policy.json:/policy.json:ro
+    
+    environment:
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+
+    entrypoint:  ["/bin/sh", "/init-minio.sh"]
+
+  # ==========================================================
+  # FASTAPI
+  #
+  # Completely private.
+  # ==========================================================
+
+  fastapi:
+    <<: [*secrets-default, *private-network]
+    build:
+      context: ./fastapi
+      target: ${TARGET}
+
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+
+  # ==========================================================
+  # PLAYWRIGHT
+  #
+  # Run manually:
+  #
+  # docker compose up -d --build
+  # docker compose --profile test up
+  # ==========================================================
+
+  playwright:
+    profiles:
+      - test
+
+    image: mcr.microsoft.com/playwright:v1.62.0-noble
+
+    working_dir: /tests
+
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+    environment:
+      BASE_URL: https://${DOMAIN}
+
+    volumes:
+      - ./tests:/tests
+
+    ipc: host
+
+    networks:
+      - public
+
+    command: npm install && npx playwright test
+
+
+# ============================================================
+# NETWORKS
+# ============================================================
+
+networks:
+
+  # Caddy <-> React
+  # Caddy <-> BFF
+  public:
+
+  # BFF <-> FastAPI
+  # BFF <-> MiniO
+  # FastAPI <-> MiniO
+  backend:
+
+
+# ============================================================
+# VOLUMES
+# ============================================================
+
+volumes:
+  caddy_data:
+  caddy_config:
+  minio_data:
+
+# ============================================================
+# SECRETS
+# ============================================================
+secrets:
+  fastapi_internal_key:
+    file: ./secrets/fastapi_internal_key.txt
+  minio_root_password:
+    file: ./secrets/minio_root_password.txt
+  minio_root_user:
+    file: ./secrets/minio_root_user.txt  
+  minio_app_password:
+    file: ./secrets/minio_app_password.txt
+  minio_app_user:
+    file: ./secrets/minio_app_user.txt
