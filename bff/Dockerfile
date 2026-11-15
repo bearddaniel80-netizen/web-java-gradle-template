@@ -37,7 +37,7 @@ RUN git clone -b common --single-branch ${GIT_URL} ${COMMON_DIR}
 RUN git clone -b ${DOMAIN} --single-branch ${GIT_URL} ${DOMAIN_DIR}
 
 # ........ build file ..........
-WORKDIR /app/${APP_LANG}
+WORKDIR /app/build
 
 RUN cp ${BUILD_DIR}/${BUILD_FILE} .
 
@@ -54,16 +54,28 @@ WORKDIR /app/${APP_LANG}/src/main
 
 RUN cp -R ${DOMAIN_DIR}/resources .
 
-# ---------- Java runtime ----------
-FROM gradle:jdk21 AS runtime
+# -------- build ----------------
+FROM gradle:8-jdk21 AS build
 
 ARG APP_LANG
 ENV APP_LANG=${APP_LANG}
 
 WORKDIR /app
+COPY --from=assembly /app/build ./
 
-COPY --chown=gradle:gradle ${APP_LANG}/ ./
+RUN --mount=type=cache,target=/home/gradle/.gradle \
+    gradle --no-daemon dependencies > /dev/null
+
+COPY ${APP_LANG}/ .
 
 COPY --from=assembly /app/${APP_LANG} .
 
-CMD ["gradle", "bootRun"]
+# Remove -x test to run spring test
+RUN --mount=type=cache,target=/home/gradle/.gradle \
+    gradle --no-daemon bootJar -x test
+
+# ---------- Java runtime ----------
+FROM eclipse-temurin:21-jre AS runtime
+WORKDIR /app
+COPY --from=build /app/build/libs/aql.jar aql.jar
+ENTRYPOINT ["java", "-jar", "aql.jar"]
