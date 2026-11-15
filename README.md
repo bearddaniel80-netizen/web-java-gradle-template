@@ -9,9 +9,8 @@ A secured api/frontend for the AQL.
 
 - jdk21
 - SpringBoot 3.5.7
-
-[Web Java Library](https://github.com/bearddaniel80-netizen/web-java-lib.git)
-[Web Template](https://github.com/bearddaniel80-netizen/web-template.git)
+- [Web Java Library](https://github.com/bearddaniel80-netizen/web-java-lib.git)
+- [Web Template](https://github.com/bearddaniel80-netizen/web-template.git)
 
 ---
 ## To run
