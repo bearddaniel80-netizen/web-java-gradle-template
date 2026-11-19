@@ -6,11 +6,11 @@ ENV GIT_BASE=github.com/bearddaniel80-netizen
 
 RUN apk add --no-cache git
 
-RUN git clone --depth=1 https://${GIT_BASE}/web-template.git
+RUN git clone --depth=1 https://${GIT_BASE}/web-react-template.git
 
 WORKDIR /build
 
-RUN cp /web-template/frontend/package.json .
+RUN cp /web-react-template/frontend/package.json .
 
 RUN --mount=type=cache,target=/root/.npm \
     npm install
@@ -22,7 +22,7 @@ WORKDIR /app
 
 COPY --from=deps /build/node_modules ./node_modules
 
-COPY --from=deps /web-template/frontend .
+COPY --from=deps /web-react-template/frontend .
 # To generate docs
 # RUN npm run docs
 
